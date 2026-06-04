@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1
+# ============================================================
+# Dockerfile.inference — Multi-stage inference image for
+# market-news quantized model serving via vLLM (gRPC + HTTP).
+# ============================================================
+
+# ---------- Build stage ----------
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use venv for clean isolation
+RUN python3.11 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip & install build deps
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Install PyTorch (CUDA 12.4)
+RUN pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+
+# Install vLLM and inference dependencies
+RUN pip install --no-cache-dir \
+    vllm==0.6.3 \
+    transformers>=4.46.0 \
+    accelerate>=1.0.0 \
+    bitsandbytes>=0.44.0 \
+    grpcio>=1.62.0 \
+    grpcio-tools>=1.62.0 \
+    pydantic>=2.0.0
+
+# Install the market-news package (build from repo)
+COPY . /app/market-news
+WORKDIR /app/market-news
+RUN pip install --no-cache-dir -e .
+
+# ---------- Runtime stage ----------
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+
+# Runtime system libs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python + venv from build stage
+COPY --from=build /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy the quantized model (expected mount or baked-in)
+# Users should either mount a volume at /model or rebuild with a baked model.
+ENV MODEL_PATH=/model
+VOLUME ["/model"]
+
+# Copy the market-news package code (without build artifacts)
+COPY --from=build /app/market-news /app/market-news
+WORKDIR /app/market-news
+
+# Expose ports: 8000 (HTTP), 50051 (gRPC)
+EXPOSE 8000
+EXPOSE 50051
+
+# Entrypoint: serve both HTTP and gRPC
+ENTRYPOINT ["python", "-m", "market_news.inference.server", \
+    "--model", "/model", \
+    "--host", "0.0.0.0", \
+    "--port", "8000", \
+    "--grpc-port", "50051"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1

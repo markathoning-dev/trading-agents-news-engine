@@ -1,0 +1,65 @@
+# syntax=docker/dockerfile:1
+# ============================================================
+# Dockerfile.training — Full CUDA training image for
+# market-news QLoRA fine-tuning of Gemma models.
+# ============================================================
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# ---------- System dependencies ----------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    git \
+    build-essential \
+    ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------- Python virtualenv ----------
+RUN python3.11 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# ---------- PyTorch (CUDA 12.4) ----------
+RUN pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+
+# ---------- Core ML & training libs ----------
+RUN pip install --no-cache-dir \
+    transformers>=4.46.0 \
+    accelerate>=1.0.0 \
+    datasets>=3.0.0 \
+    peft>=0.13.0 \
+    trl>=0.12.0 \
+    bitsandbytes>=0.44.0 \
+    wandb>=0.18.0 \
+    tensorboard>=2.18.0 \
+    einops>=0.8.0 \
+    scipy>=1.14.0 \
+    sentencepiece>=0.2.0
+
+# ---------- Additional utilities ----------
+RUN pip install --no-cache-dir \
+    flash-attn>=2.6.0 \
+    xformers>=0.0.28 \
+    deepspeed>=0.15.0
+
+# ---------- Install market-news package ----------
+COPY . /app/market-news
+WORKDIR /app/market-news
+RUN pip install --no-cache-dir -e .
+
+# ---------- Runtime config ----------
+ENV CUDA_VISIBLE_DEVICES=0
+ENV TOKENIZERS_PARALLELISM=false
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Default: mount datasets & outputs via volumes
+VOLUME ["/data", "/outputs"]
+
+# Entrypoint: run the training trainer with configurable args
+ENTRYPOINT ["python", "-m", "market_news.training.trainer"]
+CMD ["--help"]

@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "trading-agents-news-engine"
+version = "0.1.0"
+description = "News-driven LLM engine for the trading-agents ecosystem — transforms financial news into structured market signals"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+
+authors = [
+    {name = "Nous Research"},
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+]
+
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.44",
+    "accelerate",
+    "peft",
+    "bitsandbytes",
+    "trl",
+    "datasets",
+    "vllm",
+    "fastapi",
+    "uvicorn",
+    "grpcio",
+    "protobuf",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "ruff",
+]
+
+[project.urls]
+Homepage = "https://github.com/NousResearch/trading-agents-news-engine"
+Repository = "https://github.com/NousResearch/trading-agents-news-engine"
+
+[project.scripts]
+market-news-server = "market_news.inference.server:app"
+
+[tool.setuptools.packages.find]
+include = ["market_news*"]
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
